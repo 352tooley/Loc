@@ -5,7 +5,11 @@ from typing import AsyncGenerator, Optional
 from fastapi import HTTPException
 from pydantic import BaseModel
 
+import quality_agent
+
 logger = logging.getLogger(__name__)
+
+_escalation_count = 0
 
 
 class Message(BaseModel):
@@ -49,8 +53,10 @@ async def chat_completion_handler(
     router,
     loader,
     context_manager,
-) -> ChatCompletionResponse:
-    """Handle chat completion request."""
+) -> tuple["ChatCompletionResponse", bool]:
+    """Handle chat completion request. Returns (response, escalated)."""
+    global _escalation_count
+
     if not request.messages:
         raise HTTPException(status_code=400, detail="No messages provided")
 
@@ -85,19 +91,42 @@ async def chat_completion_handler(
 
     output_text = response["choices"][0]["text"].strip()
 
+    task_type = quality_agent.detect_task_type(request.messages)
+    quality_score = quality_agent.score_response(query, output_text, task_type)
+    escalated = quality_agent.should_escalate(quality_score, task_type)
+
+    if escalated:
+        _escalation_count += 1
+        domain_cfg = loader.config.domains.get(domain)
+        escalation_path = getattr(domain_cfg, "escalation_model_path", "") if domain_cfg else ""
+        if escalation_path:
+            try:
+                esc_model = loader.load(domain)
+                esc_response = _run_model(
+                    model=esc_model,
+                    prompt=prompt,
+                    messages=request.messages,
+                    max_tokens=request.max_tokens or 512,
+                    temperature=request.temperature or 0.7,
+                )
+                output_text = esc_response["choices"][0]["text"].strip()
+            except Exception as e:
+                logger.warning(f"Escalation model failed: {e}, returning tier-1 response")
+        else:
+            logger.info("No escalation model configured, returning tier-1 response")
+
+    quality_agent.log_escalation(task_type, quality_score, escalated)
+
     context_manager.add_turn("user", query, domain)
     context_manager.add_turn("assistant", output_text, domain)
 
     if context_manager.should_compress():
-        summary_prompt = f"Summarize this conversation in 1-2 sentences:\n{context_manager.format_history_for_prompt()}"
         try:
-            summary_response = model(summary_prompt, max_tokens=150, temperature=0.1)
-            new_summary = summary_response["choices"][0]["text"].strip()
-            context_manager.compress(new_summary)
+            context_manager.compress()
         except Exception as e:
-            logger.warning(f"Failed to generate summary: {e}")
+            logger.warning(f"Failed to compress context: {e}")
 
-    return ChatCompletionResponse(
+    chat_response = ChatCompletionResponse(
         id=f"chatcmpl-{int(time.time())}",
         created=int(time.time()),
         model=domain,
@@ -114,6 +143,7 @@ async def chat_completion_handler(
             "total_tokens": len(prompt.split()) + len(output_text.split()),
         },
     )
+    return chat_response, escalated
 
 
 async def stream_chat_completion(
@@ -199,13 +229,10 @@ async def stream_chat_completion(
     context_manager.add_turn("assistant", output_text, domain)
 
     if context_manager.should_compress():
-        summary_prompt = f"Summarize this conversation in 1-2 sentences:\n{context_manager.format_history_for_prompt()}"
         try:
-            summary_response = model(summary_prompt, max_tokens=150, temperature=0.1)
-            new_summary = summary_response["choices"][0]["text"].strip()
-            context_manager.compress(new_summary)
+            context_manager.compress()
         except Exception as e:
-            logger.warning(f"Failed to generate summary: {e}")
+            logger.warning(f"Failed to compress context: {e}")
 
 
 def _build_prompt(messages: list[Message], context_manager) -> str:

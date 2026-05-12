@@ -62,12 +62,12 @@ class TestContextManager:
         for i in range(6):
             context.add_turn("user", f"msg {i}", "chat")
 
-        context.compress("Summary of first 4 messages")
+        context.compress()
 
         assert len(context.history) == 2
         assert context.history[0]["content"] == "msg 4"
         assert context.history[1]["content"] == "msg 5"
-        assert context.summary == "Summary of first 4 messages"
+        assert context.summary != ""
 
     def test_persistence_save(self, context, context_file):
         context.add_turn("user", "Hello", "chat")

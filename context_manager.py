@@ -4,6 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+import memory_agent
+
 logger = logging.getLogger(__name__)
 
 
@@ -50,11 +52,23 @@ class ContextManager:
         """Check if history should be compressed (>6 turns)."""
         return len(self.history) >= 6
 
-    def compress(self, new_summary: str) -> None:
-        """Compress history, keeping only last 2 turns and updating summary."""
+    def compress(self, new_summary: str = "") -> None:
+        """Compress history using bullets strategy, keeping last 2 turns."""
         logger.info(f"Compressing context: {len(self.history)} turns → last 2 + summary")
+        turns_to_compress = self.history[:-2] if len(self.history) > 2 else self.history
+
+        tokens_before = sum(
+            memory_agent._estimate_tokens(t.get("content", "")) for t in turns_to_compress
+        )
+
+        compressed = memory_agent.compress_turns(turns_to_compress)
+        tokens_after = memory_agent._estimate_tokens(compressed)
+
+        accuracy = memory_agent.check_retrieval_accuracy(compressed, turns_to_compress)
+        memory_agent.log_compression(len(turns_to_compress), tokens_before, tokens_after, accuracy)
+
         self.history = self.history[-2:]
-        self.summary = new_summary
+        self.summary = compressed if compressed.strip() else new_summary
         self.save()
 
     def save(self) -> None:

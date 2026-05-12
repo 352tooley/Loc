@@ -66,7 +66,7 @@ async def chat_completions(
                 media_type="text/event-stream",
             )
         else:
-            response = await chat_completion_handler(request, router, loader, context_manager)
+            response, escalated = await chat_completion_handler(request, router, loader, context_manager)
 
             model_file = "mock"
             if loader.current_domain and loader.current_domain in config.domains:
@@ -78,6 +78,7 @@ async def chat_completions(
             headers = {
                 "X-SmartPack-Domain": loader.current_domain or "unknown",
                 "X-SmartPack-Model": model_file,
+                "X-SmartPack-Escalated": "true" if escalated else "false",
             }
             return JSONResponse(
                 content=response.dict(),
