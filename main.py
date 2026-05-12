@@ -42,42 +42,28 @@ app = FastAPI(
 )
 
 
-@app.post("/v1/chat/completions", response_model=ChatCompletionResponse)
+@app.post("/v1/chat/completions")
 async def chat_completions(
     request: ChatCompletionRequest,
     x_smartpack_domain: str | None = Header(None),
-) -> ChatCompletionResponse:
+):
     """OpenAI-compatible chat completions endpoint."""
     global request_count
     request_count += 1
 
     try:
-        response = await chat_completion_handler(request, router, loader, context_manager)
-        return response
+        if request.stream:
+            return StreamingResponse(
+                stream_chat_completion(request, router, loader, context_manager),
+                media_type="text/event-stream",
+            )
+        else:
+            response = await chat_completion_handler(request, router, loader, context_manager)
+            return response
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error in chat completions: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/v1/chat/completions/stream")
-async def chat_completions_stream(
-    request: ChatCompletionRequest,
-) -> StreamingResponse:
-    """Streaming chat completions endpoint."""
-    global request_count
-    request_count += 1
-
-    try:
-        return StreamingResponse(
-            stream_chat_completion(request, router, loader, context_manager),
-            media_type="text/event-stream",
-        )
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in streaming chat completions: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
 
 
