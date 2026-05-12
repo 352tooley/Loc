@@ -3,7 +3,7 @@ import os
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, Header, HTTPException
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from api.admin import HealthResponse, health_handler, swap_handler
 from api.chat import ChatCompletionRequest, ChatCompletionResponse, chat_completion_handler, stream_chat_completion
@@ -59,7 +59,22 @@ async def chat_completions(
             )
         else:
             response = await chat_completion_handler(request, router, loader, context_manager)
-            return response
+
+            model_file = "mock"
+            if loader.current_domain and loader.current_domain in config.domains:
+                domain_config = config.domains[loader.current_domain]
+                if domain_config.model_path:
+                    from pathlib import Path
+                    model_file = Path(domain_config.model_path).name
+
+            headers = {
+                "X-SmartPack-Domain": loader.current_domain or "unknown",
+                "X-SmartPack-Model": model_file,
+            }
+            return JSONResponse(
+                content=response.dict(),
+                headers=headers,
+            )
     except HTTPException:
         raise
     except Exception as e:
