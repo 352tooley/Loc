@@ -8,6 +8,7 @@ from typing import Optional
 import psutil
 
 from config import SmartPackConfig
+from preload_agent import PreloadAgent
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,7 @@ class ModelLoader:
         self.last_load_metrics: dict = {}
         self.last_unload_metrics: dict = {}
         self._process = psutil.Process()
+        self.preload_agent = PreloadAgent()
 
     def get_ram_usage(self) -> float:
         """Get current RAM usage in GB."""
@@ -169,6 +171,8 @@ class ModelLoader:
                 f"in {load_time:.2f}s. RAM: {ram_before:.2f}GB → {ram_after:.2f}GB"
             )
 
+            self._trigger_preload(domain)
+
             return self.current_model
         except FileNotFoundError:
             logger.error(f"Model file not found: {model_path}")
@@ -185,6 +189,15 @@ class ModelLoader:
         if self.config.server.ram_budget_gb <= 6:
             return min(configured, 3072)
         return configured
+
+    def _trigger_preload(self, current_domain: str) -> None:
+        try:
+            predicted = self.preload_agent.predict_next(current_domain, [])
+            predicted_config = self.config.domains.get(predicted)
+            if predicted_config and predicted_config.model_path:
+                self.preload_agent.trigger_preload(predicted, predicted_config.model_path)
+        except Exception as e:
+            logger.warning(f"Preload trigger failed: {e}")
 
     def get_status(self) -> dict:
         """Get current loader status."""

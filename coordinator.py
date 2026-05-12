@@ -2,11 +2,34 @@ import json
 import logging
 import os
 import re
+import time
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Optional
 
 from config import SmartPackConfig
 
 logger = logging.getLogger(__name__)
+
+_METRICS_FILE = Path("logs/coordinator_metrics.jsonl")
+
+
+def _log_routing(mode: str, domain: str, confidence: float, latency_ms: float, used_fallback: bool) -> None:
+    try:
+        _METRICS_FILE.parent.mkdir(exist_ok=True)
+        record = {
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "event": "routing",
+            "mode": mode,
+            "domain": domain,
+            "confidence": confidence,
+            "latency_ms": round(latency_ms, 3),
+            "used_fallback": used_fallback,
+        }
+        with open(_METRICS_FILE, "a") as f:
+            f.write(json.dumps(record) + "\n")
+    except Exception as e:
+        logger.warning(f"Failed to log coordinator metrics: {e}")
 
 
 class RoutingDecision:
@@ -40,7 +63,6 @@ class KeywordRouter:
         recent_history: str = "",
     ) -> RoutingDecision:
         scores = {}
-
         query_lower = query.lower()
 
         for domain, keywords in self.domain_keywords.items():
@@ -57,14 +79,11 @@ class KeywordRouter:
             max_possible = max(len(keywords) for keywords in self.domain_keywords.values())
             confidence = min(max_score / max_possible, 1.0)
 
-        reasoning = f"matched {max_score} keywords"
-        preload_hint = selected_domain
-
         return RoutingDecision(
             domain=selected_domain,
             confidence=confidence,
-            reasoning=reasoning,
-            preload_hint=preload_hint,
+            reasoning=f"matched {max_score} keywords",
+            preload_hint=selected_domain,
         )
 
 
@@ -100,7 +119,7 @@ class Coordinator:
                 use_mlock=False,
                 verbose=False,
             )
-            self.mode = "llama"
+            self.mode = "model"
             logger.info("Coordinator model loaded successfully")
         except Exception as e:
             logger.warning(f"Failed to load coordinator model: {e}, falling back to keyword router")
@@ -113,10 +132,33 @@ class Coordinator:
         summary: str = "",
         recent_history: str = "",
     ) -> RoutingDecision:
-        if self.mode == "keyword":
-            return self.keyword_router.route(query, summary, recent_history)
+        t0 = time.time()
 
-        return self._llama_route(query, summary, recent_history)
+        if self.mode == "keyword":
+            decision = self.keyword_router.route(query, summary, recent_history)
+            _log_routing("keyword", decision.domain, decision.confidence,
+                         (time.time() - t0) * 1000, False)
+            return decision
+
+        decision = self._llama_route(query, summary, recent_history)
+        used_fallback = False
+
+        if decision.confidence < self.config.swap_threshold_confidence:
+            logger.info(
+                f"Coordinator confidence {decision.confidence:.2f} < threshold "
+                f"{self.config.swap_threshold_confidence}, using keyword fallback"
+            )
+            decision = self.keyword_router.route(query, summary, recent_history)
+            used_fallback = True
+
+        _log_routing(
+            "keyword" if used_fallback else "model",
+            decision.domain,
+            decision.confidence,
+            (time.time() - t0) * 1000,
+            used_fallback,
+        )
+        return decision
 
     def _llama_route(
         self,
@@ -124,63 +166,66 @@ class Coordinator:
         summary: str = "",
         recent_history: str = "",
     ) -> RoutingDecision:
-        prompt = f"""You are a routing coordinator for a local LLM server. Analyze the user query and conversation context, then return ONLY valid JSON. Do not add markdown, prose, or code fences.
+        last_3_turns = recent_history or summary or "none"
+        prompt = (
+            "You are a routing coordinator. Analyze the query and context.\n"
+            "Return ONLY raw JSON, no other text:\n"
+            '{"domain":"code","confidence":0.92,"reasoning":"algorithm request","preload_hint":"math"}\n'
+            "Domains: code, math, chat, summarization\n"
+            "confidence: 0.0-1.0\n"
+            "reasoning: max 8 words\n\n"
+            f"Recent context: {last_3_turns}\n"
+            f"Query: {query}"
+        )
 
-Domains available: code, math, chat, summarization
+        for attempt in range(2):
+            try:
+                response = self.llama(
+                    prompt,
+                    max_tokens=self.config.coordinator.max_tokens,
+                    temperature=self.config.coordinator.temperature,
+                    stop=["\n\n", "</s>"],
+                )
+                output = response["choices"][0]["text"].strip()
+                return self._parse_response(output, fallback_query=query)
+            except json.JSONDecodeError:
+                if attempt == 0:
+                    logger.warning("Coordinator JSON parse failed, retrying")
+                    continue
+                logger.warning("Coordinator JSON parse failed after retry, using keyword fallback")
+                self.mode = "keyword"
+                return self.keyword_router.route(query, summary, recent_history)
+            except Exception as e:
+                logger.error(f"Coordinator LLM error: {e}, falling back to keyword router")
+                self.mode = "keyword"
+                return self.keyword_router.route(query, summary, recent_history)
 
-Current conversation summary: {summary}
-Last 3 turns: {recent_history}
-Current query: {query}
+        self.mode = "keyword"
+        return self.keyword_router.route(query, summary, recent_history)
 
-Return exactly:
-{{"domain":"code","confidence":0.92,"reasoning":"algorithm implementation request","preload_hint":"math"}}
+    def _parse_response(self, output: str, fallback_query: str = "") -> RoutingDecision:
+        output = self._extract_json(output)
+        data = json.loads(output)
+        domain = data.get("domain", self.config.fallback_domain)
+        confidence = float(data.get("confidence", 0.5))
+        reasoning = str(data.get("reasoning", ""))
+        preload_hint = data.get("preload_hint", domain)
 
-Rules:
-- domain must be one of: code, math, chat, summarization
-- confidence must be 0.0 to 1.0
-- preload_hint is your best guess at the NEXT likely domain (can be same)
-- reasoning is max 10 words"""
+        if domain not in self.config.domains:
+            logger.warning(f"Invalid domain from coordinator: {domain}, using fallback")
+            domain = self.config.fallback_domain
 
-        try:
-            response = self.llama(
-                prompt,
-                max_tokens=self.config.coordinator.max_tokens,
-                temperature=self.config.coordinator.temperature,
-                stop=["\n\n", "</s>"],
-            )
-            output = response["choices"][0]["text"].strip()
-            return self._parse_llama_response(output, fallback_query=query)
-        except Exception as e:
-            logger.error(f"Coordinator LLM error: {e}, falling back to keyword router")
-            self.mode = "keyword"
-            return self.keyword_router.route(query, summary, recent_history)
+        confidence = max(0.0, min(1.0, confidence))
 
-    def _parse_llama_response(self, output: str, fallback_query: str = "") -> RoutingDecision:
-        try:
-            output = self._extract_json(output)
-            data = json.loads(output)
-            domain = data.get("domain", self.config.fallback_domain)
-            confidence = float(data.get("confidence", 0.5))
-            reasoning = str(data.get("reasoning", ""))
-            preload_hint = data.get("preload_hint", domain)
-
-            if domain not in self.config.domains:
-                logger.warning(f"Invalid domain from coordinator: {domain}, using fallback")
-                domain = self.config.fallback_domain
-
-            confidence = max(0.0, min(1.0, confidence))
-
-            return RoutingDecision(
-                domain=domain,
-                confidence=confidence,
-                reasoning=reasoning,
-                preload_hint=preload_hint,
-            )
-        except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse coordinator JSON: {e}, using keyword fallback")
-            return self.keyword_router.route(fallback_query, "", "")
+        return RoutingDecision(
+            domain=domain,
+            confidence=confidence,
+            reasoning=reasoning,
+            preload_hint=preload_hint,
+        )
 
     @staticmethod
     def _extract_json(output: str) -> str:
-        match = re.search(r"\{.*\}", output, flags=re.DOTALL)
-        return match.group(0) if match else output
+        cleaned = re.sub(r"```[a-z]*\n?", "", output).strip()
+        match = re.search(r"\{.*\}", cleaned, flags=re.DOTALL)
+        return match.group(0) if match else cleaned

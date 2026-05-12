@@ -1,5 +1,5 @@
 models/
-logs/
+logs/*.jsonl
 .DS_Store
 *.pyc
 __pycache__/

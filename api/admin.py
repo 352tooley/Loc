@@ -1,5 +1,6 @@
 import logging
 from pathlib import Path
+from typing import Optional
 
 import psutil
 from fastapi import HTTPException
@@ -10,14 +11,17 @@ logger = logging.getLogger(__name__)
 
 class HealthResponse(BaseModel):
     status: str
-    loaded_domain: str | None
-    loaded_model: str | None
+    loaded_domain: Optional[str]
+    loaded_model: Optional[str]
     ram_used_gb: float
     ram_budget_gb: float
     ram_available_gb: float
     coordinator_mode: str
     total_requests: int
     context_turns: int
+    preload_hits: int = 0
+    preload_misses: int = 0
+    buffer_discards: int = 0
 
 
 class SwapRequest(BaseModel):
@@ -43,6 +47,8 @@ async def health_handler(
     process = psutil.Process()
     ram_available = psutil.virtual_memory().available / (1024**3)
 
+    preload_counters = loader.preload_agent.get_counters()
+
     return HealthResponse(
         status="ok",
         loaded_domain=loaded_domain,
@@ -53,6 +59,9 @@ async def health_handler(
         coordinator_mode=coordinator.mode,
         total_requests=request_count,
         context_turns=len(context_manager.history),
+        preload_hits=preload_counters["preload_hits"],
+        preload_misses=preload_counters["preload_misses"],
+        buffer_discards=preload_counters["buffer_discards"],
     )
 
 

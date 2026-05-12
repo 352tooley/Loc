@@ -22,11 +22,30 @@ class CoordinatorConfig(BaseModel):
     temperature: float = 0.1
 
 
+class PreloadConfig(BaseModel):
+    enabled: bool = True
+    strategy: str = "aggressive"
+    buffer_mb: int = 50
+
+
+class MemoryConfig(BaseModel):
+    compression_strategy: str = "bullets"
+    max_tokens: int = 60
+    trigger_turns: int = 6
+
+
+class QualityConfig(BaseModel):
+    enabled: bool = True
+    threshold: float = 0.55
+    always_escalate_types: list[str] = ["medical", "legal", "financial", "security"]
+
+
 class DomainConfig(BaseModel):
     model_path: str = ""
     model_name: str
     keywords: list[str]
     size_gb: float = 0.0
+    escalation_model_path: str = ""
 
 
 class SmartPackConfig(BaseModel):
@@ -36,6 +55,9 @@ class SmartPackConfig(BaseModel):
     fallback_domain: str = "chat"
     swap_threshold_confidence: float = 0.6
     min_turns_before_swap: int = 2
+    preload: PreloadConfig = PreloadConfig()
+    memory: MemoryConfig = MemoryConfig()
+    quality: QualityConfig = QualityConfig()
 
     @validator("domains")
     def validate_domains(cls, domains: Dict[str, DomainConfig]) -> Dict[str, DomainConfig]:

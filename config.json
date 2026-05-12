@@ -39,5 +39,20 @@
   },
   "fallback_domain": "chat",
   "swap_threshold_confidence": 0.6,
-  "min_turns_before_swap": 2
+  "min_turns_before_swap": 2,
+  "preload": {
+    "enabled": true,
+    "strategy": "aggressive",
+    "buffer_mb": 50
+  },
+  "memory": {
+    "compression_strategy": "bullets",
+    "max_tokens": 60,
+    "trigger_turns": 6
+  },
+  "quality": {
+    "enabled": true,
+    "threshold": 0.55,
+    "always_escalate_types": ["medical", "legal", "financial", "security"]
+  }
 }
