@@ -1,4 +1,17 @@
 {
-  "summary": "",
-  "history": []
+  "summary": "Mock response to: Summarize this conversation in 1-2 sentences:\nAssi...",
+  "history": [
+    {
+      "role": "user",
+      "content": "Solve for x: 2x\u00b2 + 3x + 1 = 0",
+      "domain": "code",
+      "timestamp": "2026-05-12T00:30:03.020344"
+    },
+    {
+      "role": "assistant",
+      "content": "Mock response to: Summary: Conversation just started.\nRecent convers...",
+      "domain": "code",
+      "timestamp": "2026-05-12T00:30:03.020581"
+    }
+  ]
 }

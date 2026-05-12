@@ -38,7 +38,7 @@ class Router:
                 f"(confidence: {decision.confidence:.2f}, reason: {decision.reasoning})"
             )
             self.last_domain = domain
-            self.turns_since_swap = 0
+            self.turns_since_swap = 1
         else:
             self.turns_since_swap += 1
 
