@@ -40,13 +40,9 @@ class KeywordRouter:
         scores = {}
 
         query_lower = query.lower()
-        summary_lower = summary.lower()
-        history_lower = recent_history.lower()
-
-        combined_text = f"{query_lower} {summary_lower} {history_lower}"
 
         for domain, keywords in self.domain_keywords.items():
-            count = sum(1 for keyword in keywords if keyword.lower() in combined_text)
+            count = sum(1 for keyword in keywords if keyword.lower() in query_lower)
             scores[domain] = count
 
         max_score = max(scores.values()) if scores.values() else 0

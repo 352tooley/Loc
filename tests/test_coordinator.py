@@ -51,7 +51,7 @@ class TestKeywordRouter:
 
     def test_routing_with_context(self, keyword_router):
         decision = keyword_router.route(
-            "Follow-up question",
+            "Implement a follow-up function",
             summary="Previous conversation about coding",
             recent_history="User asked: implement a function",
         )

@@ -23,6 +23,11 @@ class Router:
         """Route query to appropriate domain."""
         decision = self.coordinator.route(query, summary, recent_history)
 
+        logger.debug(
+            f"Coordinator returned: {decision.domain} (conf: {decision.confidence:.2f}), "
+            f"last_domain: {self.last_domain}, turns_since_swap: {self.turns_since_swap}"
+        )
+
         if self._should_respect_min_turns(decision.domain):
             logger.info(
                 f"Respecting min_turns_before_swap: staying with {self.last_domain} "
