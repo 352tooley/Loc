@@ -1,5 +1,7 @@
 import json
 import logging
+import os
+import re
 from typing import Optional
 
 from config import SmartPackConfig
@@ -75,6 +77,11 @@ class Coordinator:
         self._init_llama()
 
     def _init_llama(self) -> None:
+        if os.getenv("SMARTPACK_USE_MOCK", "").lower() in {"1", "true", "yes", "on"}:
+            logger.info("SMARTPACK_USE_MOCK enabled, using keyword router")
+            self.mode = "keyword"
+            return
+
         if not self.config.coordinator.model_path:
             logger.info("Coordinator model path not set, using keyword router")
             self.mode = "keyword"
@@ -86,8 +93,11 @@ class Coordinator:
             logger.info(f"Loading coordinator model from {self.config.coordinator.model_path}")
             self.llama = Llama(
                 model_path=self.config.coordinator.model_path,
-                n_ctx=self.config.server.context_window,
+                n_ctx=min(self.config.server.context_window, 2048),
                 n_threads=1,
+                n_batch=256,
+                use_mmap=True,
+                use_mlock=False,
                 verbose=False,
             )
             self.mode = "llama"
@@ -114,7 +124,7 @@ class Coordinator:
         summary: str = "",
         recent_history: str = "",
     ) -> RoutingDecision:
-        prompt = f"""You are a routing coordinator for a local LLM server. Analyze the user query and conversation context, then return ONLY a JSON object with no other text.
+        prompt = f"""You are a routing coordinator for a local LLM server. Analyze the user query and conversation context, then return ONLY valid JSON. Do not add markdown, prose, or code fences.
 
 Domains available: code, math, chat, summarization
 
@@ -136,17 +146,18 @@ Rules:
                 prompt,
                 max_tokens=self.config.coordinator.max_tokens,
                 temperature=self.config.coordinator.temperature,
-                stop=["\n"],
+                stop=["\n\n", "</s>"],
             )
             output = response["choices"][0]["text"].strip()
-            return self._parse_llama_response(output)
+            return self._parse_llama_response(output, fallback_query=query)
         except Exception as e:
             logger.error(f"Coordinator LLM error: {e}, falling back to keyword router")
             self.mode = "keyword"
             return self.keyword_router.route(query, summary, recent_history)
 
-    def _parse_llama_response(self, output: str) -> RoutingDecision:
+    def _parse_llama_response(self, output: str, fallback_query: str = "") -> RoutingDecision:
         try:
+            output = self._extract_json(output)
             data = json.loads(output)
             domain = data.get("domain", self.config.fallback_domain)
             confidence = float(data.get("confidence", 0.5))
@@ -166,5 +177,10 @@ Rules:
                 preload_hint=preload_hint,
             )
         except json.JSONDecodeError as e:
-            logger.warning(f"Failed to parse coordinator JSON: {e}, retrying with stricter prompt")
-            return self.keyword_router.route("", "", "")
+            logger.warning(f"Failed to parse coordinator JSON: {e}, using keyword fallback")
+            return self.keyword_router.route(fallback_query, "", "")
+
+    @staticmethod
+    def _extract_json(output: str) -> str:
+        match = re.search(r"\{.*\}", output, flags=re.DOTALL)
+        return match.group(0) if match else output

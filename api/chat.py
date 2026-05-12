@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import AsyncGenerator, Optional
 
 from fastapi import HTTPException
@@ -71,8 +72,10 @@ async def chat_completion_handler(
     prompt = _build_prompt(request.messages, context_manager)
 
     try:
-        response = model(
-            prompt,
+        response = _run_model(
+            model=model,
+            prompt=prompt,
+            messages=request.messages,
             max_tokens=request.max_tokens or 512,
             temperature=request.temperature or 0.7,
         )
@@ -93,8 +96,6 @@ async def chat_completion_handler(
             context_manager.compress(new_summary)
         except Exception as e:
             logger.warning(f"Failed to generate summary: {e}")
-
-    import time
 
     return ChatCompletionResponse(
         id=f"chatcmpl-{int(time.time())}",
@@ -143,8 +144,10 @@ async def stream_chat_completion(
     prompt = _build_prompt(request.messages, context_manager)
 
     try:
-        response = model(
-            prompt,
+        response = _run_model(
+            model=model,
+            prompt=prompt,
+            messages=request.messages,
             max_tokens=request.max_tokens or 512,
             temperature=request.temperature or 0.7,
         )
@@ -223,3 +226,56 @@ def _build_prompt(messages: list[Message], context_manager) -> str:
         prompt_parts.append(f"{msg.role.capitalize()}: {msg.content}")
 
     return "\n".join(prompt_parts)
+
+
+def _run_model(
+    model,
+    prompt: str,
+    messages: list[Message],
+    max_tokens: int,
+    temperature: float,
+) -> dict:
+    """Run mock or real llama.cpp models and normalize to completion text."""
+    if hasattr(model, "create_chat_completion"):
+        chat_messages = _build_chat_messages(messages, prompt)
+        start = time.time()
+        response = model.create_chat_completion(
+            messages=chat_messages,
+            max_tokens=max_tokens,
+            temperature=temperature,
+        )
+        output_text = response["choices"][0]["message"]["content"]
+        usage = response.get("usage") or {
+            "prompt_tokens": len(prompt.split()),
+            "completion_tokens": len(output_text.split()),
+            "total_tokens": len(prompt.split()) + len(output_text.split()),
+        }
+        usage["latency_seconds"] = time.time() - start
+        return {
+            "choices": [{"text": output_text, "finish_reason": response["choices"][0].get("finish_reason", "stop")}],
+            "usage": usage,
+        }
+
+    return model(
+        prompt,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+
+
+def _build_chat_messages(messages: list[Message], prompt: str) -> list[dict]:
+    """Prefer model chat templates for GGUF instruct models."""
+    system = (
+        "You are SmartPack, a concise local assistant. Use the provided conversation "
+        "context when relevant and answer the latest user message directly."
+    )
+    chat_messages = [{"role": "system", "content": system}]
+
+    if len(messages) == 1:
+        chat_messages.append({"role": "user", "content": prompt})
+        return chat_messages
+
+    for msg in messages:
+        role = msg.role if msg.role in {"system", "user", "assistant"} else "user"
+        chat_messages.append({"role": role, "content": msg.content})
+    return chat_messages

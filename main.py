@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from typing import AsyncGenerator
 
 from fastapi import FastAPI, Header, HTTPException
@@ -28,7 +29,14 @@ except Exception as e:
     logger.error(f"Failed to load config: {e}")
     raise
 
-loader = ModelLoader(config, use_mock=True)
+def _should_use_mock_models() -> bool:
+    value = os.getenv("SMARTPACK_USE_MOCK")
+    if value is not None:
+        return value.lower() in {"1", "true", "yes", "on"}
+    return "pytest" in sys.modules
+
+
+loader = ModelLoader(config, use_mock=_should_use_mock_models())
 coordinator = Coordinator(config)
 router = Router(config)
 context_manager = ContextManager()
