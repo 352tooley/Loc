@@ -1,0 +1,43 @@
+{
+  "server": {
+    "host": "0.0.0.0",
+    "port": 8080,
+    "ram_budget_gb": 6.0,
+    "context_window": 4096
+  },
+  "coordinator": {
+    "model_path": "",
+    "fallback_mode": "keyword",
+    "max_tokens": 100,
+    "temperature": 0.1
+  },
+  "domains": {
+    "code": {
+      "model_path": "",
+      "model_name": "Code Specialist",
+      "keywords": ["function", "code", "debug", "implement", "class", "error", "python", "javascript", "api", "sql", "bug", "script", "loop", "array", "algorithm"],
+      "size_gb": 0.0
+    },
+    "math": {
+      "model_path": "",
+      "model_name": "Math Specialist",
+      "keywords": ["solve", "calculate", "equation", "integral", "derivative", "proof", "matrix", "probability", "theorem", "formula", "algebra", "geometry"],
+      "size_gb": 0.0
+    },
+    "chat": {
+      "model_path": "",
+      "model_name": "Chat Specialist",
+      "keywords": ["feeling", "think", "opinion", "recommend", "advice", "help", "what do you", "how are", "tell me about", "can you"],
+      "size_gb": 0.0
+    },
+    "summarization": {
+      "model_path": "",
+      "model_name": "Summarization Specialist",
+      "keywords": ["summarize", "summary", "condense", "key points", "tldr", "brief", "overview", "main points", "shorten", "executive"],
+      "size_gb": 0.0
+    }
+  },
+  "fallback_domain": "chat",
+  "swap_threshold_confidence": 0.6,
+  "min_turns_before_swap": 2
+}
