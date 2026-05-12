@@ -50,6 +50,8 @@ class ModelLoader:
         self.current_model: Optional[object] = None
         self.current_domain: Optional[str] = None
         self.load_count = 0
+        self.last_load_metrics: dict = {}
+        self.last_unload_metrics: dict = {}
         self._process = psutil.Process()
 
     def get_ram_usage(self) -> float:
@@ -78,12 +80,21 @@ class ModelLoader:
     def unload(self) -> None:
         """Unload current model and free RAM."""
         if self.current_model is not None:
+            ram_before = self.get_ram_usage()
+            unload_start = time.time()
             logger.info(f"Unloading model from domain: {self.current_domain}")
             del self.current_model
             self.current_model = None
             self.current_domain = None
             gc.collect()
             time.sleep(0.1)
+            ram_after = self.get_ram_usage()
+            self.last_unload_metrics = {
+                "unload_time_seconds": time.time() - unload_start,
+                "ram_before_gb": ram_before,
+                "ram_after_gb": ram_after,
+                "ram_freed_gb": max(0.0, ram_before - ram_after),
+            }
 
     def load(self, domain: str) -> object:
         """Load model for specified domain, unloading previous if needed."""
@@ -101,17 +112,17 @@ class ModelLoader:
             logger.warning(f"No model path for domain {domain} or fallback {self.config.fallback_domain}")
             raise ValueError(f"No model path available for domain {domain}")
 
+        ram_before = self.get_ram_usage()
+        load_start = time.time()
+
+        self.unload()
+
         if model_path:
             estimated_size = self.estimate_model_size(model_path)
             if estimated_size > 0 and not self.can_load(estimated_size):
                 raise MemoryError(f"Model {model_path} exceeds RAM budget")
         else:
             estimated_size = 0
-
-        ram_before = self.get_ram_usage()
-        load_start = time.time()
-
-        self.unload()
 
         try:
             if self.use_mock:
@@ -126,10 +137,14 @@ class ModelLoader:
                 from llama_cpp import Llama
 
                 logger.info(f"Loading model for domain {domain} from {model_path}")
+                n_ctx = self._effective_context_window()
                 self.current_model = Llama(
                     model_path=model_path,
-                    n_ctx=self.config.server.context_window,
+                    n_ctx=n_ctx,
                     n_threads=max(1, os.cpu_count() - 1 if os.cpu_count() else 1),
+                    n_batch=min(512, n_ctx),
+                    use_mmap=True,
+                    use_mlock=False,
                     verbose=False,
                 )
 
@@ -138,6 +153,16 @@ class ModelLoader:
 
             ram_after = self.get_ram_usage()
             load_time = time.time() - load_start
+            self.last_load_metrics = {
+                "domain": domain,
+                "model_path": model_path,
+                "estimated_size_gb": estimated_size,
+                "load_time_seconds": load_time,
+                "ram_before_gb": ram_before,
+                "ram_after_gb": ram_after,
+                "ram_delta_gb": ram_after - ram_before,
+                "unload": self.last_unload_metrics,
+            }
 
             logger.info(
                 f"Loaded {domain_config.model_name} ({Path(model_path).name}) "
@@ -152,6 +177,15 @@ class ModelLoader:
             logger.error(f"Failed to load model: {e}")
             raise
 
+    def _effective_context_window(self) -> int:
+        """Keep real model context inside a conservative RAM envelope."""
+        configured = self.config.server.context_window
+        if self.config.server.ram_budget_gb <= 4:
+            return min(configured, 2048)
+        if self.config.server.ram_budget_gb <= 6:
+            return min(configured, 3072)
+        return configured
+
     def get_status(self) -> dict:
         """Get current loader status."""
         return {
@@ -161,4 +195,5 @@ class ModelLoader:
             else None,
             "ram_used_gb": self.get_ram_usage(),
             "load_count": self.load_count,
+            "last_load_metrics": self.last_load_metrics,
         }

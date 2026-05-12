@@ -6,32 +6,32 @@
     "context_window": 4096
   },
   "coordinator": {
-    "model_path": "",
+    "model_path": "models/SmolLM2-360M-Instruct-Q4_K_M.gguf",
     "fallback_mode": "keyword",
     "max_tokens": 100,
     "temperature": 0.1
   },
   "domains": {
     "code": {
-      "model_path": "",
+      "model_path": "models/qwen2.5-coder-1.5b-instruct-q4_k_m.gguf",
       "model_name": "Code Specialist",
       "keywords": ["function", "code", "debug", "implement", "class", "error", "python", "javascript", "api", "sql", "bug", "script", "loop", "array", "algorithm"],
       "size_gb": 0.0
     },
     "math": {
-      "model_path": "",
+      "model_path": "models/Qwen2.5-Math-1.5B-Instruct-Q4_K_M.gguf",
       "model_name": "Math Specialist",
       "keywords": ["solve", "calculate", "equation", "integral", "derivative", "proof", "matrix", "probability", "theorem", "formula", "algebra", "geometry"],
       "size_gb": 0.0
     },
     "chat": {
-      "model_path": "",
+      "model_path": "models/SmolLM2-1.7B-Instruct-Q4_K_M.gguf",
       "model_name": "Chat Specialist",
       "keywords": ["feeling", "think", "opinion", "recommend", "advice", "help", "what do you", "how are", "tell me about", "can you"],
       "size_gb": 0.0
     },
     "summarization": {
-      "model_path": "",
+      "model_path": "models/Qwen2.5-1.5B-Instruct-Q4_K_M.gguf",
       "model_name": "Summarization Specialist",
       "keywords": ["summarize", "summary", "condense", "key points", "tldr", "brief", "overview", "main points", "shorten", "executive"],
       "size_gb": 0.0

@@ -1,0 +1,45 @@
+# SmartPack Phase 2A Performance Report
+
+## Model Files
+code          qwen2.5-coder-1.5b-instruct-q4_k_m.gguf          1.04 GB
+math          Qwen2.5-Math-1.5B-Instruct-Q4_K_M.gguf           0.92 GB
+chat          SmolLM2-1.7B-Instruct-Q4_K_M.gguf                0.98 GB
+summarization Qwen2.5-1.5B-Instruct-Q4_K_M.gguf                0.92 GB
+coordinator   SmolLM2-360M-Instruct-Q4_K_M.gguf                0.25 GB
+
+## Smoke Tests
+code          load=3.59s ram_delta=1.79GB tok/s=6.19 first_token=7.43s
+math          load=3.62s ram_delta=-0.09GB tok/s=5.81 first_token=8.95s
+chat          load=5.47s ram_delta=0.51GB tok/s=5.36 first_token=10.63s
+summarization load=3.12s ram_delta=-0.58GB tok/s=3.57 first_token=3.08s
+
+## Routing Benchmark
+code          status=200 latency=18.35s tok/s=2.72 quality=4 query=Write a quicksort in Python
+code          status=200 latency=33.38s tok/s=1.59 quality=4 query=Debug this: for i in range(10) print(i)
+math          status=200 latency=31.63s tok/s=1.71 quality=4 query=What is the integral of e^x
+math          status=200 latency=36.90s tok/s=1.30 quality=4 query=Solve for x: 2x^2 + 5x - 3 = 0
+chat          status=200 latency=28.76s tok/s=0.83 quality=4 query=I need advice on a career change
+chat          status=200 latency=23.40s tok/s=2.01 quality=4 query=What movie should I watch tonight
+summarization status=200 latency=21.42s tok/s=2.01 quality=4 query=Summarize the key points of a long document
+summarization status=200 latency=30.52s tok/s=1.18 quality=4 query=Give me the main takeaways from this report
+
+## Swap Latency
+average=2.97s p95=5.29s
+code          total=2.47s load=2.47s unload=0.00s ram_used=2.41GB
+math          total=3.11s load=3.11s unload=0.26s ram_used=1.56GB
+chat          total=4.61s load=4.61s unload=0.40s ram_used=2.09GB
+summarization total=2.58s load=2.58s unload=0.36s ram_used=2.19GB
+code          total=2.61s load=2.61s unload=0.25s ram_used=2.10GB
+chat          total=3.06s load=3.06s unload=0.39s ram_used=1.58GB
+math          total=2.80s load=2.80s unload=0.29s ram_used=1.57GB
+summarization total=2.93s load=2.93s unload=0.29s ram_used=1.44GB
+chat          total=2.78s load=2.78s unload=0.39s ram_used=1.77GB
+code          total=2.76s load=2.76s unload=0.31s ram_used=1.79GB
+
+## Context Persistence
+pass
+
+## Recommended RAM Targets
+4GB: n_ctx 2048, one 1.5B specialist loaded at a time, coordinator optional.
+6GB: n_ctx 3072, coordinator plus one 1.5B specialist.
+8GB: n_ctx 4096, coordinator plus one 1.7B specialist with mmap.
