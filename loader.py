@@ -97,13 +97,16 @@ class ModelLoader:
 
         model_path = domain_config.model_path or self.config.domains[self.config.fallback_domain].model_path
 
-        if not model_path:
+        if not model_path and not self.use_mock:
             logger.warning(f"No model path for domain {domain} or fallback {self.config.fallback_domain}")
             raise ValueError(f"No model path available for domain {domain}")
 
-        estimated_size = self.estimate_model_size(model_path)
-        if estimated_size > 0 and not self.can_load(estimated_size):
-            raise MemoryError(f"Model {model_path} exceeds RAM budget")
+        if model_path:
+            estimated_size = self.estimate_model_size(model_path)
+            if estimated_size > 0 and not self.can_load(estimated_size):
+                raise MemoryError(f"Model {model_path} exceeds RAM budget")
+        else:
+            estimated_size = 0
 
         ram_before = self.get_ram_usage()
         load_start = time.time()

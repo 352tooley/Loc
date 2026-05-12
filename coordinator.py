@@ -50,18 +50,16 @@ class KeywordRouter:
             scores[domain] = count
 
         max_score = max(scores.values()) if scores.values() else 0
+        selected_domain = max(scores, key=scores.get) if scores else self.config.fallback_domain
 
         if max_score == 0:
-            selected_domain = self.config.fallback_domain
             confidence = 0.0
         else:
-            total_keywords = sum(len(keywords) for keywords in self.domain_keywords.values())
-            confidence = min(max_score / total_keywords * 2, 1.0)
+            max_possible = max(len(keywords) for keywords in self.domain_keywords.values())
+            confidence = min(max_score / max_possible, 1.0)
 
-            if confidence < self.config.swap_threshold_confidence:
-                selected_domain = self.config.fallback_domain
-            else:
-                selected_domain = max(scores, key=scores.get)
+        if confidence < self.config.swap_threshold_confidence:
+            selected_domain = self.config.fallback_domain
 
         reasoning = f"matched {max_score} keywords"
         preload_hint = selected_domain
